@@ -37,27 +37,15 @@ button { width:100%; padding:14px; background:#007bff; color:white; border:none;
 <script>
 let logData = [["차량번호","이름","연락처","톤수","시간","QR텍스트","GPS위도","GPS경도"]];
 
-// -------------------- 후면 카메라 강제 선택 --------------------
+// -------------------- 후면 카메라 선택 --------------------
 async function getRearCamera() {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    let rearCamera = devices.find(d =>
-        d.kind==="videoinput" &&
-        (d.label.toLowerCase().includes("back") || d.label.toLowerCase().includes("rear"))
-    );
-    if(!rearCamera){
-        const videoInputs = devices.filter(d=>d.kind==="videoinput");
-        rearCamera = videoInputs[videoInputs.length-1];
+    let rear = devices.find(d => d.kind==="videoinput" && (d.label.toLowerCase().includes("back") || d.label.toLowerCase().includes("rear")));
+    if(!rear){ 
+        const vids = devices.filter(d=>d.kind==="videoinput");
+        rear = vids[vids.length-1];
     }
-    return rearCamera ? rearCamera.deviceId : null;
-}
-
-// -------------------- GPS 요청 --------------------
-function requestGPS() {
-    return new Promise((resolve,reject)=>{
-        navigator.geolocation.getCurrentPosition(resolve,reject,{
-            enableHighAccuracy:true, timeout:10000, maximumAge:0
-        });
-    });
+    return rear ? rear.deviceId : null;
 }
 
 // -------------------- QR 스캔 시작 --------------------
@@ -67,7 +55,6 @@ async function startQRScan(car,name,phone,ton){
 
     const html5QrCode = new Html5Qrcode("reader");
     const rearId = await getRearCamera();
-
     const config = { fps:15, qrbox:{width:260,height:260}, rememberLastUsedCamera:true };
 
     Html5Qrcode.getCameras().then(cameras=>{
@@ -75,34 +62,33 @@ async function startQRScan(car,name,phone,ton){
             rearId || cameras[0].id,
             config,
             async (decodedText)=>{
-                try{
-                    const pos = await requestGPS();
-                    const time = new Date().toLocaleString();
-                    const lat = pos.coords.latitude;
-                    const lon = pos.coords.longitude;
-
-                    logData.push([car,name,phone,ton,time,decodedText,lat,lon]);
-
-                    html5QrCode.stop();
-                    showResult(decodedText,lat,lon,false);
-                }catch(e){
-                    html5QrCode.stop();
-                    alert("GPS 권한을 허용해야 위치 기록이 가능합니다.");
-                    document.getElementById("inputForm").style.display="block";
-                }
+                navigator.geolocation.getCurrentPosition(
+                    (pos)=>{
+                        const time = new Date().toLocaleString();
+                        logData.push([car,name,phone,ton,time,decodedText,pos.coords.latitude,pos.coords.longitude]);
+                        html5QrCode.stop();
+                        showResult(decodedText,pos.coords.latitude,pos.coords.longitude,false);
+                    },
+                    (err)=>{
+                        html5QrCode.stop();
+                        alert("GPS 권한을 허용해야 위치 기록이 가능합니다.");
+                        document.getElementById("inputForm").style.display="block";
+                    },
+                    {enableHighAccuracy:true,timeout:10000}
+                );
             },
             (err)=>{}
         );
     });
 }
 
-// -------------------- 결과 출력 --------------------
+// -------------------- 결과 표시 --------------------
 function showResult(qrText,lat,lon,isFinal){
     const box = document.getElementById("resultBox");
     box.style.display="block";
 
     if(!isFinal){
-        box.innerHTML=`
+        box.innerHTML = `
         <h3>충수지점 스캔 완료</h3>
         <p><b>QR 내용:</b> ${qrText}</p>
         <p><b>GPS 위도:</b> ${lat}</p>
@@ -110,7 +96,7 @@ function showResult(qrText,lat,lon,isFinal){
         <button onclick="startHacha()">하차지점 QR 스캔 시작</button>
         `;
     }else{
-        box.innerHTML=`
+        box.innerHTML = `
         <h3>하차지점 스캔 완료</h3>
         <p><b>QR 내용:</b> ${qrText}</p>
         <p><b>GPS 위도:</b> ${lat}</p>
@@ -121,7 +107,7 @@ function showResult(qrText,lat,lon,isFinal){
     document.getElementById("downloadBtn").style.display="block";
 }
 
-// -------------------- 하차지점 스캔 --------------------
+// -------------------- 하차지점 QR 스캔 --------------------
 async function startHacha(){
     document.getElementById("resultBox").style.display="none";
     document.getElementById("reader").style.display="block";
@@ -134,18 +120,20 @@ async function startHacha(){
         html5QrCode.start(
             rearId || cameras[0].id,
             config,
-            async (decodedText)=>{
-                try{
-                    const pos = await requestGPS();
-                    const time = new Date().toLocaleString();
-
-                    logData.push(["-","-","-","-",time,decodedText,pos.coords.latitude,pos.coords.longitude]);
-                    html5QrCode.stop();
-                    showResult(decodedText,pos.coords.latitude,pos.coords.longitude,true);
-                }catch(e){
-                    html5QrCode.stop();
-                    alert("GPS 권한을 허용해야 위치 기록이 가능합니다.");
-                }
+            (decodedText)=>{
+                navigator.geolocation.getCurrentPosition(
+                    (pos)=>{
+                        const time = new Date().toLocaleString();
+                        logData.push(["-","-","-","-",time,decodedText,pos.coords.latitude,pos.coords.longitude]);
+                        html5QrCode.stop();
+                        showResult(decodedText,pos.coords.latitude,pos.coords.longitude,true);
+                    },
+                    (err)=>{
+                        html5QrCode.stop();
+                        alert("GPS 권한을 허용해야 위치 기록이 가능합니다.");
+                    },
+                    {enableHighAccuracy:true,timeout:10000}
+                );
             }
         );
     });
@@ -159,25 +147,22 @@ function downloadExcel(){
     XLSX.writeFile(wb,"vehicle_log.xlsx");
 }
 
-// -------------------- 버튼 이벤트 --------------------
-document.getElementById("startBtn").addEventListener("click", async ()=>{
+// -------------------- 버튼 클릭 이벤트 --------------------
+document.getElementById("startBtn").addEventListener("click",()=>{
     const car = document.getElementById("carNum").value.trim();
     const name = document.getElementById("name").value.trim();
     const phone = document.getElementById("phone").value.trim();
     const ton = document.getElementById("ton").value.trim();
 
-    if(!car||!name||!phone||!ton){
-        alert("모든 입력값을 입력하세요."); return;
-    }
+    if(!car||!name||!phone||!ton){ alert("모든 입력값을 입력하세요."); return; }
 
-    try{
-        await requestGPS(); // 클릭 이벤트 내에서 권한 요청
-        startQRScan(car,name,phone,ton);
-    }catch(e){
-        alert("GPS 권한을 허용해야 스캔을 시작할 수 있습니다.");
-    }
+    // 클릭 이벤트 안에서 GPS 권한 요청
+    navigator.geolocation.getCurrentPosition(
+        (pos)=>{ startQRScan(car,name,phone,ton); },
+        (err)=>{ alert("GPS 권한을 허용해야 스캔을 시작할 수 있습니다."); },
+        {enableHighAccuracy:true,timeout:10000}
+    );
 });
 </script>
-
 </body>
 </html>
