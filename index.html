@@ -1,310 +1,200 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>차량 출입 기록 시스템 (QR 인식률 최대 부스팅)</title>
-    <style>
-        /* CSS 스타일은 이전과 동일 */
-        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f7f7f7; }
-        h2, h3 { color: #333; }
-        input, button { 
-            padding: 10px; 
-            margin-top: 8px; 
-            width: 100%; 
-            box-sizing: border-box; 
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-        button { 
-            background-color: #007bff; 
-            color: white; 
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        button:hover { background-color: #0056b3; }
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>차량 출입 기록 시스템</title>
 
-        #scanner-area { 
-            display: none; 
-            margin-top: 20px; 
-            text-align: center; 
-            padding: 15px;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        #video-container {
-            position: relative;
-            width: 100%;
-            max-width: 400px;
-            margin: 10px auto;
-        }
-        video, #canvas-overlay { 
-            width: 100%; 
-            border: 3px solid #ccc; 
-            border-radius: 8px;
-            display: block;
-        }
-        #canvas-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-        }
-        #output { 
-            margin-top: 15px; 
-            padding: 10px; 
-            border: 1px solid #ffe0b2; 
-            background-color: #fff3e0; 
-            color: #e65100; 
-            border-radius: 4px;
-            min-height: 50px;
-        }
-        #record-display {
-            padding: 15px;
-            background-color: #e8f5e9; 
-            border: 1px solid #c8e6c9;
-            border-radius: 8px;
-        }
-        #record-table th, #record-table td {
-            padding: 8px;
-            text-align: left;
-            border: 1px solid #ddd;
-        }
-        #record-table th {
-            background-color: #dcedc8; 
-        }
+    <!-- QR Scanner Library -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+    <!-- XLSX Writer -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        input { width: 100%; padding:10px; margin:8px 0; font-size:16px; }
+        button { width: 100%; padding:14px; background:#007bff; color:white; border:none; font-size:18px; margin-top:10px; }
+        #reader { width: 100%; margin-top: 15px; }
+        #resultBox { margin-top:20px; padding:10px; background:#efefef; }
     </style>
 </head>
+
 <body>
 
-    <h2>🚗 차량 출입 기록 시스템 (QR 인식률 최대 부스팅)</h2>
-    <form id="info-form">
-        <input type="text" id="car-number" placeholder="1. 차량번호 (예: 12가3456)" required>
-        <input type="text" id="driver-name" placeholder="2. 이름" required>
-        <input type="tel" id="phone-number" placeholder="3. 전화번호 (예: 010-1234-5678)" required>
-        <input type="text" id="car-tonnage" placeholder="4. 차량 톤수 (예: 5톤 또는 5t)" required>
-        
-        <button type="submit">입력 완료 & 입차 QR 스캔 시작</button>
-    </form>
+<h2>차량 출입 기록 시스템</h2>
 
-    <div id="scanner-area">
-        <h3>QR 스캔 중...</h3>
-        <div id="video-container">
-            <video id="video" autoplay playsinline style="transform: scaleX(-1);"></video>
-            <canvas id="canvas-overlay"></canvas> 
-        </div>
-        <canvas id="canvas" style="display: none;"></canvas>
-        <div id="output">스캔 결과: 대기 중</div>
-        
-        <button id="checkout-start-btn" style="display: none; margin-top: 15px;">▶ 하차 지점 QR 스캔 시작</button>
-    </div>
+<!-- 입력 폼 -->
+<div id="inputForm">
+    <input id="carNum" placeholder="차량번호" />
+    <input id="name" placeholder="이름" />
+    <input id="phone" placeholder="연락처" />
+    <input id="ton" placeholder="차량 톤수" />
 
-    <div id="record-display" style="margin-top: 30px; display: none;">
-        <h3>✅ 최종 운행 기록</h3>
-        <table id="record-table" style="width: 100%; border-collapse: collapse;">
-            <thead>
-                <tr><th>항목</th><th>내용</th></tr>
-            </thead>
-            <tbody></tbody>
-        </table>
-    </div>
+    <button onclick="startQR()">입력완료 & QR 스캔 시작</button>
+</div>
 
-    <script src="https://cdn.jsdelivr.net/npm/jsQR@1.0.0/dist/jsQR.min.js"></script>
-    
-    <script>
-        const infoForm = document.getElementById('info-form');
-        const scannerArea = document.getElementById('scanner-area');
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const canvasOverlay = document.getElementById('canvas-overlay');
-        const outputDiv = document.getElementById('output');
-        const checkoutStartBtn = document.getElementById('checkout-start-btn');
-        const recordDisplay = document.getElementById('record-display');
-        const recordTableBody = document.querySelector('#record-table tbody');
-        
-        const ctx = canvas.getContext('2d'); 
-        const ctxOverlay = canvasOverlay.getContext('2d');
+<!-- QR 스캐너 -->
+<div id="reader" style="display:none;"></div>
 
-        let stream = null;
-        let isCheckingIn = true; 
-        let scanLoopId = null;
+<!-- 결과 박스 -->
+<div id="resultBox" style="display:none;"></div>
 
-        infoForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            const vehicleData = {
-                carNum: document.getElementById('car-number').value,
-                name: document.getElementById('driver-name').value,
-                phoneNumber: document.getElementById('phone-number').value,
-                carTonnage: document.getElementById('car-tonnage').value,
-                checkinTime: null, checkinLocation: null,
-                checkoutTime: null, checkoutLocation: null,
-            };
-            localStorage.setItem('currentVehicleTrip', JSON.stringify(vehicleData));
-            infoForm.style.display = 'none';
-            scannerArea.style.display = 'block';
-            outputDiv.innerHTML = '📍 **입차 지점 QR**을 스캔해주세요.';
-            isCheckingIn = true;
-            startScanner();
-        });
+<button id="downloadBtn" style="display:none;" onclick="downloadExcel()">엑셀 다운로드</button>
 
-        checkoutStartBtn.addEventListener('click', function() {
-            checkoutStartBtn.style.display = 'none';
-            outputDiv.innerHTML = '🚚 **하차 지점 QR**을 스캔해주세요.';
-            isCheckingIn = false;
-            startScanner();
-        });
+<script>
+// -------------------- 데이터 저장 배열 --------------------
+let logData = [["차량번호","이름","연락처","톤수","시간","QR텍스트","GPS위도","GPS경도"]];
 
-        // ⭐ 1. 모든 Constrain을 강제로 요청하여 초점 및 대비 안정화
-        function startScanner() {
-            if (stream) { stopScanner(); }
+// -------------------- 후면 카메라 강제 선택 --------------------
+async function getRearCamera() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    let rearCamera = devices.find(d =>
+        d.kind === "videoinput" &&
+        (d.label.toLowerCase().includes("back") ||
+         d.label.toLowerCase().includes("rear"))
+    );
 
-            navigator.mediaDevices.getUserMedia({ 
-                video: { 
-                    facingMode: "environment",
-                    // ⭐ 안정 해상도 고정
-                    width: { ideal: 640 }, 
-                    height: { ideal: 480 },
-                    // ⭐ 고급 Constrain 요청 (브라우저가 지원하는 경우 포커스/줌/대비 개선)
-                    advanced: [{
-                        torch: true, // 플래시 요청 (어두운 환경 대비)
-                        focusMode: 'manual', // 수동 초점 모드 요청 (브라우저 재량)
-                        zoom: { min: 1, max: 2, step: 0.1 } // 줌 기능 요청
-                    }]
-                } 
-            })
-                .then(function(s) {
-                    stream = s;
-                    video.srcObject = s;
-                    video.setAttribute('playsinline', true);
-                    video.play();
-                    
-                    video.addEventListener('loadeddata', function() {
-                         canvasOverlay.width = video.videoWidth;
-                         canvasOverlay.height = video.videoHeight;
-                         if (!scanLoopId) {
-                            scanLoopId = setTimeout(tick, 100);
-                         }
-                    }, { once: true });
-                })
-                .catch(function(err) {
-                    console.error('CRITICAL CAMERA ACCESS ERROR:', err);
-                    outputDiv.innerHTML = '❌ **카메라 오류!** (HTTPS 및 권한 확인)';
-                });
+    if (!rearCamera) {
+        // label 접근 제한 시 fallback
+        const videoInputs = devices.filter(d => d.kind === "videoinput");
+        rearCamera = videoInputs[videoInputs.length - 1];
+    }
+
+    return rearCamera.deviceId;
+}
+
+// -------------------- QR 스캔 시작 --------------------
+async function startQR() {
+    const car = document.getElementById("carNum").value.trim();
+    const name = document.getElementById("name").value.trim();
+    const phone = document.getElementById("phone").value.trim();
+    const ton = document.getElementById("ton").value.trim();
+
+    if (!car || !name || !phone || !ton) {
+        alert("모든 입력값을 입력하세요.");
+        return;
+    }
+
+    document.getElementById("inputForm").style.display = "none";
+    document.getElementById("reader").style.display = "block";
+
+    const config = {
+        fps: 15,
+        qrbox: { width: 260, height: 260 },
+        rememberLastUsedCamera: true,
+        experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true
         }
+    };
 
-        function stopScanner() {
-            if (scanLoopId) { clearTimeout(scanLoopId); scanLoopId = null; }
-            if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
-            ctxOverlay.clearRect(0, 0, canvasOverlay.width, canvasOverlay.height);
+    const html5QrCode = new Html5Qrcode("reader");
+
+    const rearId = await getRearCamera();
+
+    Html5Qrcode.getCameras().then(cameras => {
+        if (cameras && cameras.length) {
+            html5QrCode.start(
+                rearId || cameras[0].id,
+                config,
+                async (decodedText) => {
+                    try {
+                        const pos = await getGPS();
+                        const time = new Date().toLocaleString();
+                        const lat = pos.coords.latitude;
+                        const lon = pos.coords.longitude;
+
+                        logData.push([car, name, phone, ton, time, decodedText, lat, lon]);
+
+                        html5QrCode.stop();
+                        showResult(decodedText, lat, lon, false);
+                    } catch(e) {
+                        alert("GPS 권한을 허용해주세요.");
+                        html5QrCode.stop();
+                    }
+                },
+                (err) => {}
+            );
         }
+    });
+}
 
-        // ⭐ 2. 이미지 전처리를 포함한 QR 스캔 루프 (tick 함수)
-        function tick() {
-            if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                const analysisWidth = video.videoWidth;
-                const analysisHeight = video.videoHeight;
-                canvas.width = analysisWidth;
-                canvas.height = analysisHeight;
-                
-                ctx.drawImage(video, 0, 0, analysisWidth, analysisHeight);
-                let imageData = ctx.getImageData(0, 0, analysisWidth, analysisHeight);
-                
-                // ⭐ 3. 이미지 전처리: 대비 개선 (Thresholding) 시도
-                // 대비가 낮은 QR 코드의 인식을 돕기 위해 픽셀 값을 조정합니다.
-                imageData = applyContrastBoost(imageData); 
-                
-                const code = jsQR(imageData.data, imageData.width, imageData.height, {
-                    inversionAttempts: "dontInvert", // 반전 이미지 시도는 성능 저하 우려로 유지
-                });
-                
-                ctxOverlay.clearRect(0, 0, canvasOverlay.width, canvasOverlay.height);
+// -------------------- GPS 가져오기 --------------------
+function getGPS() {
+    return new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+        });
+    });
+}
 
-                if (code) {
-                    drawBoundingBox(code.location, ctxOverlay);
-                    console.log('✅ QR Code Found:', code.data); 
-                    handleScanResult(code.data);
-                    return; 
-                } else {
-                    outputDiv.innerHTML = isCheckingIn 
-                        ? '📍 **입차 QR 스캔 중...** (화면 중앙에 초점을 맞춰주세요)' 
-                        : '🚚 **하차 QR 스캔 중...** (화면 중앙에 초점을 맞춰주세요)';
+// -------------------- 결과 출력 --------------------
+function showResult(qrText, lat, lon, isFinal) {
+    const box = document.getElementById("resultBox");
+    box.style.display = "block";
+
+    if (!isFinal) {
+        box.innerHTML = `
+        <h3>충수지점 스캔 완료</h3>
+        <p><b>QR 내용:</b> ${qrText}</p>
+        <p><b>GPS 위도:</b> ${lat}</p>
+        <p><b>GPS 경도:</b> ${lon}</p>
+        <button onclick="restart()">하차지점 QR 스캔 시작</button>
+        `;
+    } else {
+        box.innerHTML = `
+        <h3>하차지점 스캔 완료</h3>
+        <p><b>QR 내용:</b> ${qrText}</p>
+        <p><b>GPS 위도:</b> ${lat}</p>
+        <p><b>GPS 경도:</b> ${lon}</p>
+        `;
+    }
+
+    document.getElementById("downloadBtn").style.display = "block";
+}
+
+// -------------------- 하차지점 스캔 재시작 --------------------
+async function restart() {
+    document.getElementById("resultBox").style.display = "none";
+    document.getElementById("reader").style.display = "block";
+
+    const config = { fps: 15, qrbox: { width: 260, height: 260 }, rememberLastUsedCamera: true };
+    const html5QrCode = new Html5Qrcode("reader");
+
+    const rearId = await getRearCamera();
+
+    Html5Qrcode.getCameras().then(cameras => {
+        html5QrCode.start(
+            rearId || cameras[0].id,
+            config,
+            async (decodedText) => {
+                try {
+                    const pos = await getGPS();
+                    const time = new Date().toLocaleString();
+
+                    logData.push(["-", "-", "-", "-", time, decodedText, pos.coords.latitude, pos.coords.longitude]);
+                    html5QrCode.stop();
+
+                    showResult(decodedText, pos.coords.latitude, pos.coords.longitude, true);
+                } catch(e) {
+                    alert("GPS 권한을 허용해주세요.");
+                    html5QrCode.stop();
                 }
             }
-            scanLoopId = setTimeout(tick, 100); 
-        }
-        
-        // ⭐ 4. 대비 개선 (Thresholding) 함수
-        function applyContrastBoost(imageData) {
-            const data = imageData.data;
-            let sum = 0;
+        );
+    });
+}
 
-            // 1단계: 평균 밝기 (threshold) 계산
-            for (let i = 0; i < data.length; i += 4) {
-                // R, G, B 평균으로 밝기 계산
-                const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-                sum += brightness;
-            }
-            const threshold = sum / (data.length / 4);
+// -------------------- 엑셀 다운로드 --------------------
+function downloadExcel() {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(logData);
+    XLSX.utils.book_append_sheet(wb, ws, "출입기록");
+    XLSX.writeFile(wb, "vehicle_log.xlsx");
+}
+</script>
 
-            // 2단계: 이진화 적용 (대비 극대화)
-            for (let i = 0; i < data.length; i += 4) {
-                const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-                let value = brightness > threshold ? 255 : 0;
-                
-                data[i] = value;     // R
-                data[i + 1] = value; // G
-                data[i + 2] = value; // B
-                // A는 유지
-            }
-            return imageData;
-        }
-
-        // 경계선 그리기 함수 (동일)
-        function drawBoundingBox(location, ctx) {
-            ctx.strokeStyle = "#FF3B3B";
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.moveTo(location.topLeftCorner.x, location.topLeftCorner.y);
-            ctx.lineTo(location.topRightCorner.x, location.topRightCorner.y);
-            ctx.lineTo(location.bottomRightCorner.x, location.bottomRightCorner.y);
-            ctx.lineTo(location.bottomLeftCorner.x, location.bottomLeftCorner.y);
-            ctx.lineTo(location.topLeftCorner.x, location.topLeftCorner.y);
-            ctx.stroke();
-        }
-
-        // 5, 6번 함수 (handleScanResult, displayFinalRecord)는 이전과 동일
-        function handleScanResult(data) { /* ... 로직 유지 ... */
-            stopScanner(); 
-            let vehicleData = JSON.parse(localStorage.getItem('currentVehicleTrip'));
-            if (isCheckingIn) {
-                vehicleData.checkinTime = new Date().toLocaleTimeString('ko-KR');
-                vehicleData.checkinLocation = data;
-                outputDiv.innerHTML = `✅ **입차 완료!** 지점: **${data}**<br> 이제 하차 지점으로 이동해주세요.`;
-                checkoutStartBtn.style.display = 'block';
-            } else {
-                vehicleData.checkoutTime = new Date().toLocaleTimeString('ko-KR');
-                vehicleData.checkoutLocation = data;
-                outputDiv.innerHTML = `✅ **하차 완료!** 지점: **${data}**<br> 운행 기록을 확인하세요.`;
-                displayFinalRecord(vehicleData); 
-                setTimeout(() => {
-                    infoForm.reset(); infoForm.style.display = 'block';
-                    scannerArea.style.display = 'none'; localStorage.removeItem('currentVehicleTrip'); 
-                }, 5000); 
-            }
-            localStorage.setItem('currentVehicleTrip', JSON.stringify(vehicleData)); 
-        }
-
-        function displayFinalRecord(data) { /* ... 로직 유지 ... */
-            recordTableBody.innerHTML = `
-                <tr><td>차량번호</td><td>${data.carNum}</td></tr>
-                <tr><td>이름</td><td>${data.name}</td></tr>
-                <tr><td>전화번호</td><td>${data.phoneNumber}</td></tr>
-                <tr><td>차량 톤수</td><td>${data.carTonnage}</td></tr>
-                <tr><td>**입차 시간/지점**</td><td>${data.checkinTime} (${data.checkinLocation})</td></tr>
-                <tr><td>**하차 시간/지점**</td><td>${data.checkoutTime} (${data.checkoutLocation})</td></tr>
-            `;
-            recordDisplay.style.display = 'block';
-        }
-    </script>
 </body>
 </html>
