@@ -37,7 +37,7 @@ button { width:100%; padding:14px; background:#007bff; color:white; border:none;
 <script>
 let logData = [["차량번호","이름","연락처","톤수","시간","QR텍스트","GPS위도","GPS경도"]];
 
-// -------------------- 시간 포맷 함수 --------------------
+// -------------------- 시간 포맷 --------------------
 function getFormattedTime(){
     const d = new Date();
     const yyyy = d.getFullYear();
@@ -60,7 +60,7 @@ async function getRearCamera() {
     return rear ? rear.deviceId : null;
 }
 
-// -------------------- QR 기록 함수 --------------------
+// -------------------- QR 기록 --------------------
 function recordQR(car,name,phone,ton,decodedText,isHacha=false){
     navigator.geolocation.getCurrentPosition(
         (pos)=>{
@@ -167,12 +167,29 @@ document.getElementById("startBtn").addEventListener("click",()=>{
 
     if(!car||!name||!phone||!ton){ alert("모든 입력값을 입력하세요."); return; }
 
-    // 클릭 이벤트 안에서 GPS 권한 요청 후 QR 스캔
-    navigator.geolocation.getCurrentPosition(
-        (pos)=>{ startQRScan(car,name,phone,ton); },
-        (err)=>{ alert("GPS 권한을 허용해야 스캔을 시작할 수 있습니다."); },
-        {enableHighAccuracy:true,timeout:10000}
-    );
+    // 🔹 권한 체크
+    if (navigator.permissions){
+        navigator.permissions.query({name:'geolocation'}).then(function(result){
+            if(result.state === 'granted'){
+                startQRScan(car,name,phone,ton);
+            } else if(result.state === 'prompt'){
+                navigator.geolocation.getCurrentPosition(
+                    (pos)=>{ startQRScan(car,name,phone,ton); },
+                    (err)=>{ alert("GPS 권한을 허용해야 스캔을 시작할 수 있습니다."); },
+                    {enableHighAccuracy:true,timeout:10000}
+                );
+            } else {
+                alert("GPS 권한이 차단되어 있습니다. 브라우저 설정에서 허용해주세요.");
+            }
+        });
+    } else {
+        // 구형 브라우저 fallback
+        navigator.geolocation.getCurrentPosition(
+            (pos)=>{ startQRScan(car,name,phone,ton); },
+            (err)=>{ alert("GPS 권한을 허용해야 스캔을 시작할 수 있습니다."); },
+            {enableHighAccuracy:true,timeout:10000}
+        );
+    }
 });
 </script>
 </body>
